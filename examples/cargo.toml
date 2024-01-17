@@ -1,0 +1,12 @@
+[package]
+name = "datafusion-federation-examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dev-dependencies]
+tokio = "1.35.1"
+datafusion.workspace = true
+datafusion-federation.path = "../datafusion-federation"
+datafusion-federation-sql.path = "../sources/sql"
