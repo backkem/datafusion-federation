@@ -5,12 +5,12 @@ use datafusion::{
     error::Result,
     execution::context::{SessionContext, SessionState},
 };
-use datafusion_federation::FederationAnalyzerRule;
+use datafusion_federation::{FederatedQueryPlanner, FederationAnalyzerRule};
 use datafusion_federation_sql::{executor::CXExecutor, SQLFederationProvider, SQLSchemaProvider};
 
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
-    let dsn = "sqlite://./chinook.sqlite".to_string();
+    let dsn = "sqlite://./examples/examples/chinook.sqlite".to_string();
     let known_tables: Vec<String> = ["Track", "Album", "Artist"]
         .iter()
         .map(|&x| x.into())
@@ -20,7 +20,9 @@ async fn main() -> datafusion::error::Result<()> {
 
     // Register FederationAnalyzer
     // TODO: Interaction with other analyzers & optimizers.
-    let state = state.with_analyzer_rules(vec![Arc::new(FederationAnalyzerRule::new())]);
+    let state = state
+        .add_analyzer_rule(Arc::new(FederationAnalyzerRule::new()))
+        .with_query_planner(Arc::new(FederatedQueryPlanner::new()));
 
     // Register schema
     // TODO: table inference
@@ -31,15 +33,15 @@ async fn main() -> datafusion::error::Result<()> {
 
     // Run query
     let ctx = SessionContext::new_with_state(state);
-    let query = r#"SELECT * FROM `Track` limit 10"#;
-    // let query = r#"SELECT
-    //         t.TrackId,
-    //         t.Name AS TrackName,
-    //         a.Title AS AlbumTitle,
-    //         ar.Name AS ArtistName
-    //     FROM Track t
-    //     JOIN Album a ON t.AlbumId = a.AlbumId
-    //     JOIN Artist ar ON a.ArtistId = ar.ArtistId"#;
+    let query = r#"SELECT
+             t.TrackId,
+             t.Name AS TrackName,
+             a.Title AS AlbumTitle,
+             ar.Name AS ArtistName
+         FROM Track t
+         JOIN Album a ON t.AlbumId = a.AlbumId
+         JOIN Artist ar ON a.ArtistId = ar.ArtistId
+         limit 10"#;
     let df = ctx.sql(query).await?;
 
     df.show().await
