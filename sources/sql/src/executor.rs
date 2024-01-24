@@ -54,6 +54,9 @@ impl CXExecutor {
         let conn = SourceConn::try_from(dsn.as_str()).map_err(cx_error_to_df)?;
         Ok(Self { context: dsn, conn })
     }
+    pub fn context(&mut self, context: String) {
+        self.context = context;
+    }
 }
 
 fn cx_error_to_df(err: ConnectorXError) -> DataFusionError {

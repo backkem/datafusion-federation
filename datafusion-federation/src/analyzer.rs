@@ -4,7 +4,7 @@ use datafusion::{
     config::ConfigOptions,
     datasource::source_as_provider,
     error::{DataFusionError, Result},
-    logical_expr::{LogicalPlan, TableScan, TableSource},
+    logical_expr::{Expr, LogicalPlan, Projection, TableScan, TableSource},
     optimizer::analyzer::AnalyzerRule,
 };
 
@@ -58,7 +58,7 @@ impl FederationAnalyzerRule {
             return Ok((None, None));
         }
 
-        let (mut new_inputs, providers): (Vec<_>, Vec<_>) = inputs
+        let (new_inputs, providers): (Vec<_>, Vec<_>) = inputs
             .iter()
             .map(|i| self.optimize_recursively(i, Some(plan), _config))
             .collect::<Result<Vec<_>>>()?
@@ -74,7 +74,10 @@ impl FederationAnalyzerRule {
                 // federate the entire plan
                 if let Some(provider) = first_provider {
                     if let Some(optimizer) = provider.analyzer() {
-                        let optimized = optimizer.execute_and_check(plan, _config, |_, _| {})?;
+                        // Wrap the plan with a projection
+                        let wrapped = wrap_projection(plan.clone())?;
+                        let optimized =
+                            optimizer.execute_and_check(&wrapped, _config, |_, _| {})?;
                         return Ok((Some(optimized), None));
                     }
                     return Ok((None, None));
@@ -85,37 +88,35 @@ impl FederationAnalyzerRule {
             return Ok((None, first_provider.clone()));
         }
 
-        // ambiguous & not federated yet: the inputs are the largest sub-plans.
-        // TODO: below is WIP & untested
-        if new_inputs.iter().all(|i| i.is_none()) {
-            new_inputs = inputs
-                .iter()
-                .enumerate()
-                .map(|(i, sub_plan)| {
-                    if let Some(provider) = providers.get(i).unwrap() {
-                        if let Some(optimizer) = provider.analyzer() {
-                            let optimized =
-                                optimizer.execute_and_check(sub_plan, _config, |_, _| {})?;
-                            return Ok(Some(optimized));
-                        }
-                        return Ok(None);
-                    }
-                    Ok(None)
-                })
-                .collect::<Result<Vec<_>>>()?;
-        }
-
-        // Merge inputs
-        let merged_inputs = new_inputs
+        // The plan is ambiguous, any inputs that are not federated and
+        // have a sole provider, should be federated.
+        let new_inputs = new_inputs
             .into_iter()
             .enumerate()
-            .map(|(i, o)| match o {
-                Some(plan) => plan,
-                None => (*(inputs.get(i).unwrap())).clone(),
-            })
-            .collect::<Vec<_>>();
+            .map(|(i, new_sub_plan)| {
+                if let Some(sub_plan) = new_sub_plan {
+                    // Already federated
+                    return Ok(sub_plan);
+                }
+                let sub_plan = inputs.get(i).unwrap();
+                // Check if the input has a sole provider and can be federated.
+                if let Some(provider) = providers.get(i).unwrap() {
+                    if let Some(optimizer) = provider.analyzer() {
+                        let wrapped = wrap_projection((*sub_plan).clone())?;
 
-        let new_plan = plan.with_new_inputs(&merged_inputs)?;
+                        let optimized =
+                            optimizer.execute_and_check(&wrapped, _config, |_, _| {})?;
+                        return Ok(optimized);
+                    }
+                    // No federation for this sub-plan (no analyzer)
+                    return Ok((*sub_plan).clone());
+                }
+                // No federation for this sub-plan (no provider)
+                Ok((*sub_plan).clone())
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let new_plan = plan.with_new_inputs(&new_inputs)?;
 
         Ok((Some(new_plan), None))
     }
@@ -128,6 +129,25 @@ impl FederationAnalyzerRule {
                 Ok(Some(provider))
             }
             _ => Ok(None),
+        }
+    }
+}
+
+fn wrap_projection(plan: LogicalPlan) -> Result<LogicalPlan> {
+    // TODO: minimize requested columns
+    match plan {
+        LogicalPlan::Projection(_) => Ok(plan),
+        _ => {
+            let expr = plan
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| Expr::Column(f.qualified_column()))
+                .collect::<Vec<Expr>>();
+            Ok(LogicalPlan::Projection(Projection::try_new(
+                expr,
+                Arc::new(plan),
+            )?))
         }
     }
 }
