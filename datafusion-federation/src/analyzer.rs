@@ -74,10 +74,7 @@ impl FederationAnalyzerRule {
                 // federate the entire plan
                 if let Some(provider) = first_provider {
                     if let Some(optimizer) = provider.analyzer() {
-                        // Wrap the plan with a projection
-                        let wrapped = wrap_projection(plan.clone())?;
-                        let optimized =
-                            optimizer.execute_and_check(&wrapped, _config, |_, _| {})?;
+                        let optimized = optimizer.execute_and_check(plan, _config, |_, _| {})?;
                         return Ok((Some(optimized), None));
                     }
                     return Ok((None, None));
