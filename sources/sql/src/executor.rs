@@ -54,6 +54,14 @@ impl CXExecutor {
         let conn = SourceConn::try_from(dsn.as_str()).map_err(cx_error_to_df)?;
         Ok(Self { context: dsn, conn })
     }
+
+    pub fn new_with_conn(conn: SourceConn) -> Self {
+        Self {
+            context: conn.conn.to_string(),
+            conn,
+        }
+    }
+
     pub fn context(&mut self, context: String) {
         self.context = context;
     }

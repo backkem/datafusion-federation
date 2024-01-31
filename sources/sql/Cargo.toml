@@ -15,7 +15,6 @@ async-trait.workspace = true
 # https://github.com/sfu-db/connector-x/pull/555
 connectorx = { git = "https://github.com/sfu-db/connector-x.git", rev = "fa0fc7bc", features = [
     "dst_arrow",
-    "src_sqlite",
 ] }
 datafusion.workspace = true
 datafusion-federation.path = "../../datafusion-federation"
